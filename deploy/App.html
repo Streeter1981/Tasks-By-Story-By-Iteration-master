@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CoffeeTaskStory</title>
+
+    <script type="text/javascript" src="/apps/2.0rc1/sdk.js"></script>
+
+
+
+    <script type="text/javascript">
+        Rally.onReady(function () {
+(function() {
+  Ext.define('CustomApp', {
+    extend: 'Rally.app.App',
+    componentCls: 'app',
+    launch: function() {
+      var iterationCombobox;
+      iterationCombobox = Ext.create('Rally.ui.combobox.IterationComboBox', {
+        listeners: {
+          select: function(combobox) {
+            return this.storiesByIteration(combobox.getRecord().get('_ref'));
+          },
+          ready: function(combobox) {
+            return this.storiesByIteration(combobox.getRecord().get('_ref'));
+          },
+          scope: this
+        },
+        storeConfig: {
+          fetch: ['Name', 'Notes', '_ref', 'StartDate', 'EndDate', 'ObjectID', 'State']
+        }
+      });
+      return this.add(iterationCombobox);
+    },
+    storiesByIteration: function(iterationRef) {
+      var storyStore;
+      return storyStore = Ext.create('Rally.data.WsapiDataStore', {
+        model: 'User Story',
+        autoLoad: true,
+        fetch: ['Name', 'ScheduleState', 'PlanEstimate', '_ref'],
+        filters: [
+          {
+            property: 'Iteration',
+            operator: '=',
+            value: iterationRef
+          }
+        ],
+        listeners: {
+          load: function(store, storyRecords) {
+            if (storyRecords.length !== 0) {
+              return this.tasksByStory(storyRecords);
+            } else {
+              return this.createEmptyPanel('Stories');
+            }
+          },
+          scope: this
+        }
+      });
+    },
+    tasksByStory: function(storyRecords) {
+      var stories, taskFilter, taskFilters, taskStore;
+      stories = [];
+      taskFilters = [];
+      Ext.Array.each(storyRecords, function(record) {
+        stories[record.data._ref] = record;
+        return taskFilters.push({
+          property: 'WorkProduct',
+          operator: '=',
+          value: record.data._ref
+        });
+      });
+      taskFilter = Rally.data.QueryFilter.or(taskFilters);
+      return taskStore = Ext.create('Rally.data.WsapiDataStore', {
+        model: 'Task',
+        autoLoad: true,
+        fetch: ['Name', 'State', 'Estimate', 'ToDo', 'Actuals', '_ref', 'WorkProduct'],
+        filters: taskFilter,
+        listeners: {
+          load: function(store, taskRecords) {
+            if (taskRecords.length !== 0) {
+              return this.aggregateData(taskRecords, stories);
+            } else {
+              return this.createEmptyPanel('Tasks');
+            }
+          },
+          scope: this
+        }
+      });
+    },
+    aggregateData: function(taskRecords, stories) {
+      var customStoreRecords;
+      customStoreRecords = [];
+      Ext.Array.each(taskRecords, function(taskRecord) {
+        var storyRecord;
+        storyRecord = stories[taskRecord.get('WorkProduct')._ref];
+        return customStoreRecords.push({
+          'StoryName': storyRecord.get('Name'),
+          'ScheduleState': storyRecord.get('ScheduleState'),
+          'PlanEstimate': storyRecord.get('PlanEstimate'),
+          'StoryRef': storyRecord.get('_ref'),
+          'TaskName': taskRecord.get('Name'),
+          'State': taskRecord.get('State'),
+          'Estimate': taskRecord.get('Estimate'),
+          'ToDo': taskRecord.get('ToDo'),
+          'Actuals': taskRecord.get('Actuals'),
+          'TaskRef': taskRecord.get('_ref')
+        });
+      });
+      return this.updateGrid(customStoreRecords);
+    },
+    createGrid: function(myStore) {
+      if (this.emptyPanel != null) {
+        this.remove(this.emptyPanel);
+      }
+      console.log(this.emptyPanel);
+      this.myGrid = Ext.create('Rally.ui.grid.Grid', {
+        disableSelection: true,
+        store: myStore,
+        columnCfgs: [
+          {
+            text: 'Story Name',
+            dataIndex: 'StoryName',
+            flex: 2,
+            renderer: function(value, meta, record) {
+              return '<a href="' + Rally.nav.Manager.getDetailUrl(record.get('StoryRef')) + '">' + value + '</a>';
+            }
+          }, {
+            text: 'ScheduleState',
+            dataIndex: 'ScheduleState',
+            flex: 1
+          }, {
+            text: 'Plan Estimate',
+            dataIndex: 'PlanEstimate',
+            flex: 1
+          }, {
+            text: 'Task Name',
+            dataIndex: 'TaskName',
+            flex: 2,
+            renderer: function(value, meta, record) {
+              return '<a href="' + Rally.nav.Manager.getDetailUrl(record.get('TaskRef')) + '">' + value + '</a>';
+            }
+          }, {
+            text: 'State',
+            dataIndex: 'State',
+            flex: 1
+          }, {
+            text: 'Estimate',
+            dataIndex: 'Estimate',
+            flex: 1
+          }, {
+            text: 'ToDo',
+            dataIndex: 'ToDo',
+            flex: 1
+          }, {
+            text: 'Actuals',
+            dataIndex: 'Actuals',
+            flex: 1
+          }
+        ]
+      });
+      return this.add(this.myGrid);
+    },
+    updateGrid: function(customStoreRecords) {
+      var myStore;
+      myStore = Ext.create('Rally.data.custom.Store', {
+        data: customStoreRecords
+      });
+      console.log('grid', this.myGrid);
+      if (this.myGrid === void 0 || this.myGrid.isDestroyed) {
+        if (this.emptyPanel != null) {
+          this.remove(this.emptyPanel);
+        }
+        return this.createGrid(myStore);
+      } else {
+        return this.myGrid.reconfigure(myStore);
+      }
+    },
+    createEmptyPanel: function(item) {
+      if (this.myGrid != null) {
+        this.remove(this.myGrid);
+      }
+      if (this.emptyPanel != null) {
+        this.remove(this.emptyPanel);
+      }
+      console.log(this.myGrid);
+      this.emptyPanel = new Ext.Panel({
+        title: 'No ' + item,
+        titleAlign: 'center',
+        html: "<I>No " + item + " in This Iteration</I>",
+        style: {
+          'text-align': 'center'
+        },
+        bodyStyle: {
+          'font-size': '1.0em',
+          'padding': '2px'
+        }
+      });
+      return this.add(this.emptyPanel);
+    }
+  });
+
+}).call(this);
+
+            
+            Rally.launchApp('CustomApp', {
+                name:"CoffeeTaskStory",
+                parentRepos:""
+            });
+
+        });
+    </script>
+
+
+
+
+    <style type="text/css">
+.app {
+     /* Add app styles here */
+}
+
+    </style>
+
+</head>
+<body></body>
+</html>
